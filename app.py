@@ -20,12 +20,23 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from datetime import datetime
+import inspect
 
 DATA_FILE = "pet-records.csv"
 MODEL_DIR = "saved_models"
 
 if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
+
+# ===============================
+# RMSE calculation that works for all sklearn versions
+# ===============================
+def calc_rmse(y_true, y_pred):
+    sig = inspect.signature(mean_squared_error)
+    if "squared" in sig.parameters:  # Newer sklearn supports squared=False
+        return mean_squared_error(y_true, y_pred, squared=False)
+    else:  # Older sklearn, compute manually
+        return np.sqrt(mean_squared_error(y_true, y_pred))
 
 # ===============================
 # FEATURE ENGINEERING FUNCTION
@@ -128,7 +139,7 @@ def train_models():
         model.fit(X_train_scaled, y_train)
         preds = model.predict(X_test_scaled)
         mae = mean_absolute_error(y_test, preds)
-        rmse = mean_squared_error(y_test, preds, squared=False)
+        rmse = calc_rmse(y_test, preds)
         results[name] = {"MAE": mae, "RMSE": rmse}
         joblib.dump(model, os.path.join(MODEL_DIR, f"{name}.pkl"))
 
@@ -152,7 +163,7 @@ def train_models():
     )
     dl_preds = dl_model.predict(X_test_scaled).flatten()
     mae = mean_absolute_error(y_test, dl_preds)
-    rmse = mean_squared_error(y_test, dl_preds, squared=False)
+    rmse = calc_rmse(y_test, dl_preds)
     results["DeepLearning"] = {"MAE": mae, "RMSE": rmse}
     dl_model.save(os.path.join(MODEL_DIR, "DeepLearning.h5"))
 
