@@ -20,23 +20,12 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from datetime import datetime
-import inspect
 
 DATA_FILE = "pet-records.csv"
 MODEL_DIR = "saved_models"
 
 if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
-
-# ===============================
-# RMSE calculation that works for all sklearn versions
-# ===============================
-def calc_rmse(y_true, y_pred):
-    sig = inspect.signature(mean_squared_error)
-    if "squared" in sig.parameters:  # Newer sklearn supports squared=False
-        return mean_squared_error(y_true, y_pred, squared=False)
-    else:  # Older sklearn, compute manually
-        return np.sqrt(mean_squared_error(y_true, y_pred))
 
 # ===============================
 # FEATURE ENGINEERING FUNCTION
@@ -139,7 +128,7 @@ def train_models():
         model.fit(X_train_scaled, y_train)
         preds = model.predict(X_test_scaled)
         mae = mean_absolute_error(y_test, preds)
-        rmse = calc_rmse(y_test, preds)
+        rmse = mean_squared_error(y_test, preds, squared=False)
         results[name] = {"MAE": mae, "RMSE": rmse}
         joblib.dump(model, os.path.join(MODEL_DIR, f"{name}.pkl"))
 
@@ -163,7 +152,7 @@ def train_models():
     )
     dl_preds = dl_model.predict(X_test_scaled).flatten()
     mae = mean_absolute_error(y_test, dl_preds)
-    rmse = calc_rmse(y_test, dl_preds)
+    rmse = mean_squared_error(y_test, dl_preds, squared=False)
     results["DeepLearning"] = {"MAE": mae, "RMSE": rmse}
     dl_model.save(os.path.join(MODEL_DIR, "DeepLearning.h5"))
 
@@ -181,7 +170,7 @@ def predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, selected_
         return {}
 
     gender_map = {"M": "Male", "F": "Female", "Unknown": "Unknown"}
-    petGender = gender_map.get(petGender, "Unknown")
+    petGender = gender_map.get(petGender, petGender)
 
     df = pd.DataFrame([{
         "petAge": petAge,
@@ -217,6 +206,17 @@ def predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, selected_
 # ===============================
 st.title("🐾 Pet Risk Value Prediction")
 
+# Load dataset options dynamically
+if os.path.exists(DATA_FILE):
+    df_data = pd.read_csv(DATA_FILE)
+    pet_gender_options = sorted(df_data['petGender'].dropna().unique())
+    pet_breed_options = sorted(df_data['petBreed'].dropna().unique())
+    cancer_suspect_options = sorted(df_data['PetCancerSuspect'].dropna().unique())
+else:
+    pet_gender_options = ["M", "F", "Unknown"]
+    pet_breed_options = []
+    cancer_suspect_options = ["Yes", "No"]
+
 tab1, tab2 = st.tabs(["📊 Train Models", "🔮 Predict Risk"])
 
 with tab1:
@@ -228,9 +228,9 @@ with tab1:
 
 with tab2:
     petAge = st.text_input("Pet Age (e.g., '3 years 2 months' or '8/6/21')")
-    petGender = st.selectbox("Pet Gender", ["M", "F", "Unknown"])
-    petBreed = st.text_input("Pet Breed")
-    PetCancerSuspect = st.selectbox("Cancer Suspect", ["Yes", "No"])
+    petGender = st.selectbox("Pet Gender", pet_gender_options)
+    petBreed = st.selectbox("Pet Breed", pet_breed_options)
+    PetCancerSuspect = st.selectbox("Cancer Suspect", cancer_suspect_options)
     Note = st.text_area("Notes")
 
     available_models = ["LinearRegression", "ElasticNet", "DecisionTree", "RandomForest",
@@ -243,6 +243,9 @@ with tab2:
     if st.button("Predict Risk Value"):
         if not model_choice:
             model_choice = available_models
-        predictions = predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, model_choice)
+        predictions = predict_input(
+            petAge, petGender, petBreed, PetCancerSuspect, Note, model_choice
+        )
         if predictions:
             st.write(pd.DataFrame.from_dict(predictions, orient='index', columns=['Predicted Risk Value']))
+
