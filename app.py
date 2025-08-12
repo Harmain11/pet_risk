@@ -58,14 +58,10 @@ def feature_engineering(df: pd.DataFrame, breed_freq_map: dict | None = None):
             if not isinstance(age_str, str):
                 return np.nan
             s = age_str.lower().strip()
-
-            # match "3 years", "3y", "3 yr", "3yrs", etc.
             years = sum(int(x) for x in re.findall(r'(\d+)\s*(?:y|yr|yrs|year|years)\b', s))
-            # match "2 months", "2m", "2 mo", "2mos", etc.
             months = sum(int(x) for x in re.findall(r'(\d+)\s*(?:m|mo|mos|month|months)\b', s))
 
             if years == 0 and months == 0:
-                # try date formats mm/dd/yy, mm/dd/yyyy, yyyy-mm-dd
                 for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
                     try:
                         birth_date = datetime.strptime(s, fmt)
@@ -74,7 +70,6 @@ def feature_engineering(df: pd.DataFrame, breed_freq_map: dict | None = None):
                         return int(delta.days // 30)
                     except Exception:
                         continue
-                # fallback: just numbers = years
                 nums = re.findall(r'\d+', s)
                 if nums:
                     years = int(nums[0])
@@ -90,7 +85,6 @@ def feature_engineering(df: pd.DataFrame, breed_freq_map: dict | None = None):
     df['breed_freq'] = df['petBreed'].map(breed_freq_map).fillna(0).astype(int)
 
     df['is_mix_breed'] = df['petBreed'].str.lower().str.contains(r"mix|cross|mixed").fillna(False).astype(int)
-
     df['PetCancerSuspect'] = df['PetCancerSuspect'].map({"Yes": 1, "No": 0}).fillna(0).astype(int)
 
     df['note_length'] = df['Note'].apply(lambda x: len(str(x)))
@@ -102,13 +96,8 @@ def feature_engineering(df: pd.DataFrame, breed_freq_map: dict | None = None):
     df = pd.concat([df, gender_ohe], axis=1)
 
     features = [
-        'petAgeMonths',
-        'breed_freq',
-        'is_mix_breed',
-        'PetCancerSuspect',
-        'note_length',
-        'note_word_count',
-        'note_keyword_count'
+        'petAgeMonths', 'breed_freq', 'is_mix_breed',
+        'PetCancerSuspect', 'note_length', 'note_word_count', 'note_keyword_count'
     ] + sorted([c for c in gender_ohe.columns])
 
     return df, features, breed_freq_map
@@ -216,8 +205,8 @@ def predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, selected_
     }])
 
     input_proc, _, _ = feature_engineering(input_df, breed_freq_map=breed_freq_map)
-
     X = input_proc.reindex(columns=features, fill_value=0)
+
     try:
         X_scaled = scaler.transform(X)
     except Exception as e:
@@ -231,18 +220,17 @@ def predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, selected_
                 dl_model = load_model(DL_MODEL_FILE)
                 pred = float(dl_model.predict(X_scaled).flatten()[0])
                 predictions[model_name] = pred
-            except Exception as e:
-                st.warning(f"Failed to load DeepLearning model: {e}")
+            except Exception:
+                predictions[model_name] = np.nan
         else:
             model_path = os.path.join(MODEL_DIR, f"{model_name}.pkl")
             try:
                 model = joblib.load(model_path)
                 pred = model.predict(X_scaled)
-                if isinstance(pred, (list, np.ndarray)):
-                    pred = float(np.array(pred).flatten()[0])
+                pred = float(np.array(pred).flatten()[0])
                 predictions[model_name] = pred
-            except Exception as e:
-                predictions[model_name] = f"error: {str(e)}"
+            except Exception:
+                predictions[model_name] = np.nan
     return predictions
 
 
@@ -291,6 +279,7 @@ with tab2:
             preds = predict_input(petAge, petGender, petBreed, PetCancerSuspect, Note, model_choice)
             if preds:
                 df_out = pd.DataFrame.from_dict(preds, orient='index', columns=['Predicted Risk Value'])
+                df_out['Predicted Risk Value'] = pd.to_numeric(df_out['Predicted Risk Value'], errors='coerce')
                 st.dataframe(df_out)
             else:
                 st.info("No predictions returned.")
